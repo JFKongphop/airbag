@@ -11,10 +11,13 @@ from their **own wallets through 1inch Aqua**, publish their own risk curves, an
 **Live on Arbitrum Sepolia** · **13 contracts, all source-verified** · **34 Foundry tests passing** · three
 live cover products · automatic payouts · 3 competing underwriters · a real Uniswap v4 pool + hook
 
+## Demo Video
+
+[![Airbag Demo](./media/demo-cover.png)](https://youtu.be/AGcrzesFw2s)
+
 | | |
 |---|---|
-| 🎬 **Demo video** (3:11) | `<!-- TODO: paste YouTube / Loom link -->` · local file: [`demo-video/airbag-demo.mp4`](demo-video/airbag-demo.mp4) · voice-over script: [`demo-video/voiceover.md`](demo-video/voiceover.md) |
-| 🌐 **Live app** | `<!-- TODO: paste deployed URL (deploy airbag/frontend) -->` |
+| 🌐 **Live app** | **[airbag.insure](https://airbag.insure)**: Arbitrum Sepolia, connect MetaMask (test USDG is free to mint) |
 | 📜 **Contracts** | [Deployed addresses](#61-deployed-contracts-arbitrum-sepolia--chain-421614) (all verified on Sourcify) · history in [`DEPLOYMENTS.md`](DEPLOYMENTS.md) |
 | 🧩 **Integrate** | `/integrate` in the app: a drop-in "Protect this balance" widget and a one-call contract API |
 | 🧪 **Try it yourself** | [Run it locally](#11-run-it-locally), or open the live app, connect MetaMask on Arbitrum Sepolia and mint test USDG |
