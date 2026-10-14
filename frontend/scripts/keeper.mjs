@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 // Airbag keeper — makes the airbag deploy itself.
 //
-// Every few seconds it walks every open policy on the CoverApp and:
-//   • fires CoverApp.payout(id) when the policy's trigger has hit (depeg, LP loss, stock gap) —
-//     the USDG lands in the note holder's wallet without them doing anything;
+// Every few seconds it:
+//   • records each market's trigger with CoverApp.poke(hash) when it changes, so an event is paid
+//     even if the price recovers before a payout is fired, or the policy expires first;
+//   • fires CoverApp.payout(id) when a policy has something due (depeg, LP loss, stock gap), and
+//     again if a proportional loss deepens — the USDG lands in the note holder's wallet without
+//     them doing anything; expired policies are still paid in the claim grace period;
 //   • settles lapsed policies with CoverApp.expire(id) so underwriter capacity is recycled.
-// Both calls are permissionless: anyone can run this bot.
+// All calls are permissionless: anyone can run this bot.
 //
 //   node scripts/keeper.mjs                      # local anvil (uses anvil dev account #2)
 //   NETWORK=sepolia RPC_URL=… KEEPER_KEY=0x… DEMO_FEED=1 node scripts/keeper.mjs
@@ -35,7 +38,13 @@ const app = parseAbi([
   "function policies(uint256) view returns (bytes32 marketHash, uint256 coverNotional, uint64 expiry, bool claimed, address buyer, uint64 boughtAt, uint256 premium, uint256 paidOut)",
   "function payout(uint256 policyId) returns (uint256)",
   "function expire(uint256 policyId)",
+  "function marketCount() view returns (uint256)",
+  "function marketList(uint256) view returns (bytes32)",
+  "function marketTrigger(bytes32) view returns (bool hit, uint256 payoutBps)",
+  "function openEpisode(bytes32) view returns (uint64 start, uint64 lastSeen, uint16 maxBps)",
+  "function poke(bytes32 strategyHash)",
 ]);
+const POKE_EVERY = 60n; // while an event lasts, re-record it at most once a minute
 const noteAbi = parseAbi(["function holderOf(uint256) view returns (address)"]);
 const oracleAbi = parseAbi(["function latestPrice() view returns (uint256, uint256)", "function set(uint256)"]);
 
@@ -70,22 +79,46 @@ async function tick() {
     }
   }
 
-  for (const id of [...open]) {
-    const [, notional, expiry, claimed] = await pub.readContract({ address: dep.coverApp, abi: app, functionName: "policies", args: [id] });
-    if (claimed) { open.delete(id); continue; }
-    try {
-      if (now > expiry) {
-        const { hash } = await send("expire", [id]);
-        log(`⌛ policy #${id} lapsed → capacity released (${usd(notional)} USDG)  ${hash.slice(0, 10)}`);
-        open.delete(id);
-        continue;
+  // record each market's trigger when it starts, deepens, ends, or once a minute while it lasts
+  try {
+    const count = await pub.readContract({ address: dep.coverApp, abi: app, functionName: "marketCount" });
+    for (let i = 0n; i < count; i++) {
+      const hash = await pub.readContract({ address: dep.coverApp, abi: app, functionName: "marketList", args: [i] });
+      const [hit, bps] = await pub.readContract({ address: dep.coverApp, abi: app, functionName: "marketTrigger", args: [hash] });
+      const [start, lastSeen, maxBps] = await pub.readContract({ address: dep.coverApp, abi: app, functionName: "openEpisode", args: [hash] });
+      const due = hit ? start === 0n || bps > BigInt(maxBps) || now - lastSeen >= POKE_EVERY : start !== 0n;
+      if (!due) continue;
+      try {
+        const { hash: tx } = await send("poke", [hash]);
+        log(`${hit ? "📍 event recorded" : "✓ event ended"} on market ${hash.slice(0, 10)}…${hit ? ` (${Number(bps) / 100}%)` : ""}  ${tx.slice(0, 10)}`);
+      } catch {
+        // stale price — try again next round
       }
+    }
+  } catch {
+    // a CoverApp from before events were recorded: nothing to poke
+  }
+
+  for (const id of [...open]) {
+    const [, notional, expiry, claimed, , , , paidOut] = await pub.readContract({ address: dep.coverApp, abi: app, functionName: "policies", args: [id] });
+    if (claimed) { open.delete(id); continue; }
+    // pay what is due first (also inside the grace period after expiry), then release lapsed cover
+    try {
       const holder = await pub.readContract({ address: dep.coverNote, abi: noteAbi, functionName: "holderOf", args: [id] });
       const { hash, result } = await send("payout", [id]);
       log(`🎈 AIRBAG DEPLOYED — policy #${id} paid ${usd(result)} USDG → ${holder}  ${hash.slice(0, 10)}`);
-      open.delete(id);
+      continue; // a partial payout keeps the policy open; it leaves the set once it reads as claimed
     } catch {
-      // not triggered yet (or oracle stale) — check again next round
+      // nothing due (or price stale)
+    }
+    if (now > expiry) {
+      try {
+        const { hash } = await send("expire", [id]);
+        log(`⌛ policy #${id} lapsed → capacity released (${usd(notional - paidOut)} USDG)  ${hash.slice(0, 10)}`);
+        open.delete(id);
+      } catch {
+        // an event was recorded in its term: held until the claim grace period ends
+      }
     }
   }
 }
