@@ -50,6 +50,11 @@ export type Market = {
   strike?: bigint; // gap: strike price (8 dp)
   deductibleBps?: number; // il
   capBps?: number; // il
+  // purchase rules set by the underwriter, in seconds (0 = none); absent on older contracts
+  minDuration?: number;
+  maxDuration?: number;
+  waitingPeriod?: number;
+  eventInProgress?: boolean; // the trigger is true, or a recorded event has not ended: no new cover
 };
 
 export type Policy = {
@@ -147,9 +152,10 @@ export function useAirbag(account?: Address) {
             client.readContract({ address: D.coverNote, abi: noteHolderAbi, functionName: "holderOf", args: [id] }),
           ]);
           const [market, notional, expiry, settled, buyer, boughtAt, premium, paidOut] = p;
-          // what would payout() pay right now? (simulated; reverts => not triggered)
+          // what would payout() pay right now? (simulated; reverts => nothing due). Also after expiry:
+          // an event recorded during the term is still paid in the claim grace period.
           let due: bigint | null = null;
-          if (!settled && now <= expiry) {
+          if (!settled) {
             try {
               const r = await client.simulateContract({ address: app, abi: payoutAbi, functionName: "payout", args: [id], account: holder });
               due = r.result;
@@ -166,7 +172,7 @@ export function useAirbag(account?: Address) {
             boughtAt,
             expiry,
             settled,
-            paidOut: settled && paidOut > 0n ? paidOut : null,
+            paidOut: paidOut > 0n ? paidOut : null, // a proportional payout can be paid before the policy closes
             paidTo: null,
             expiredReleased: settled && paidOut === 0n,
             held: bal > 0n,
@@ -237,6 +243,17 @@ export function useAirbag(account?: Address) {
             premiumApyBps: backing > 0n ? Number((annual * 10_000n) / backing) : 0,
             docked,
           };
+          try {
+            const r = await client.readContract({ address: app, abi: coverAppAbi, functionName: "buyRules", args: [hash] });
+            mk.minDuration = Number(r[0]);
+            mk.maxDuration = Number(r[1]);
+            mk.waitingPeriod = Number(r[2]);
+            const [hit] = await client.readContract({ address: app, abi: coverAppAbi, functionName: "marketTrigger", args: [hash] });
+            const ep = await client.readContract({ address: app, abi: coverAppAbi, functionName: "openEpisode", args: [hash] });
+            mk.eventInProgress = hit || ep[0] !== 0n;
+          } catch {
+            // older CoverApp without buy rules or recorded events: any term, no blocking
+          }
           if (product === "gap" && D.gapTrigger) {
             const c = await client.readContract({ address: D.gapTrigger, abi: gapTriggerAbi, functionName: "configs", args: [hash] });
             mk.strike = c[1];

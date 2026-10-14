@@ -20,12 +20,21 @@ export function legCost(m: Market, x: number) {
 
 export type Leg = { market: Market; notional: number };
 
+/** Does this market sell a policy of `duration` seconds? (the underwriter's term limits) */
+export function allowsTerm(m: Market, duration: number) {
+  if (m.minDuration && duration < m.minDuration) return false;
+  if (m.maxDuration && duration > m.maxDuration) return false;
+  return true;
+}
+
 /**
  * Deterministic route solver: slice the order and give each slice to the underwriter whose
  * leg gets the least more expensive by taking it — the ArcBook-style "walk the curves" solver.
- * The on-chain CoverRouter then fills all legs atomically with a premium cap.
+ * The on-chain CoverRouter then fills all legs atomically with a premium cap. Markets whose term
+ * limits exclude `duration`, or that refuse new cover during an event, are left out.
  */
-export function solveRoute(book: Market[], notional: number, slices = 40): Leg[] | null {
+export function solveRoute(book: Market[], notional: number, duration?: number, slices = 40): Leg[] | null {
+  book = book.filter((m) => !m.eventInProgress && (duration === undefined || allowsTerm(m, duration)));
   const room = (m: Market) => Math.max(0, (Number(m.capacity) - Number(m.covered)) / 1e18);
   const alloc = new Map<Hex, number>(book.map((m) => [m.hash, 0]));
   const step = notional / slices;
