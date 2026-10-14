@@ -29,7 +29,7 @@ import {
   routerAbi,
   swapperAbi,
 } from "@/lib/abis";
-import { solveRoute } from "@/lib/route";
+import { allowsTerm, solveRoute } from "@/lib/route";
 import { DEPLOYMENT as D, DEV_ACCOUNTS, IS_LOCAL, CHAIN, POOL_KEY, explorerTx } from "@/lib/wagmi";
 import { useAirbag, type Market, type Policy, type Product } from "@/lib/useAirbag";
 
@@ -124,10 +124,11 @@ type Send = (label: string, fn: () => Promise<Hex>) => Promise<TransactionReceip
 type Write = ReturnType<typeof useWriteContract>["writeContractAsync"];
 
 function status(p: Policy, now: bigint) {
-  if (p.paidOut !== null) return { k: "paid", label: `paid ${compact(p.paidOut)}`, cls: "ok" };
+  if (p.settled && p.paidOut !== null) return { k: "paid", label: `paid ${compact(p.paidOut)}`, cls: "ok" };
   if (p.expiredReleased) return { k: "lapsed", label: "lapsed", cls: "" };
-  if (now > p.expiry) return { k: "expired", label: "expired · settle", cls: "warn" };
   if (p.due !== null) return { k: "due", label: `due ${compact(p.due)}`, cls: "bad" };
+  if (now > p.expiry) return { k: "expired", label: "expired · settle", cls: "warn" };
+  if (p.paidOut !== null) return { k: "active", label: `paid ${compact(p.paidOut)} · still covered`, cls: "ok" };
   if (p.bound === false) return { k: "unbound", label: "not linked", cls: "warn" };
   return { k: "active", label: "active", cls: "ok" };
 }
@@ -627,12 +628,14 @@ function BuyPanel({ market, book, state, busy, account, send, write, capLeft, mi
   }, [client, notional, market.hash, market.covered, dur]);
 
   const isIl = market.product === "il";
+  // no new cover while the event is on (the router already skips markets that are on hold)
   const routed = book.length > 1 && !!D.coverRouter && D.coverRouter !== "0x0000000000000000000000000000000000000000";
+  const onHold = routed ? book.every((m) => m.eventInProgress) : !!market.eventInProgress;
   const route = useMemo(
-    () => (routed && notional > 0n ? solveRoute(book, Number(formatUnits(notional, 18))) : null),
+    () => (routed && notional > 0n ? solveRoute(book, Number(formatUnits(notional, 18)), dur) : null),
     // re-solve when the book moves
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [routed, notional, book.map((m) => `${m.hash}:${m.covered}:${m.capacity}`).join("|")]
+    [routed, notional, dur, book.map((m) => `${m.hash}:${m.covered}:${m.capacity}`).join("|")]
   );
   const legs = useMemo(
     () => (route ?? []).map((l) => ({ strategyHash: l.market.hash, coverNotional: parseUnits(l.notional.toFixed(6), 18) })),
@@ -775,7 +778,7 @@ function BuyPanel({ market, book, state, busy, account, send, write, capLeft, mi
         <label><span>Term</span></label>
         <div className="chips">
           {DURATIONS.map((d) => (
-            <button key={d.s} className={`chip ${dur === d.s ? "on" : ""}`} onClick={() => setDur(d.s)}>{d.label}</button>
+            <button key={d.s} className={`chip ${dur === d.s ? "on" : ""}`} disabled={!routed && !allowsTerm(market, d.s)} title={!routed && !allowsTerm(market, d.s) ? "This underwriter does not sell this term" : undefined} onClick={() => setDur(d.s)}>{d.label}</button>
           ))}
         </div>
       </div>
@@ -796,13 +799,14 @@ function BuyPanel({ market, book, state, busy, account, send, write, capLeft, mi
 
       </details>
       <div className="actions">
-        <button className="btn btn-primary" disabled={!account || !!busy || shownPremium === null || over || poor || (isIl && !lpLive) || (routed && !route)} onClick={buy}>
+        <button className="btn btn-primary" disabled={!account || !!busy || shownPremium === null || over || poor || onHold || (isIl && !lpLive) || (routed && !route)} onClick={buy}>
           {isIl ? "Buy + link LP cover" : "Buy cover"}{shownPremium !== null ? ` · ${usd(shownPremium)} USDG` : ""} →
         </button>
       </div>
       <div className="pnl-note">
         {routed && legs.length > 0 ? `Filled by ${legs.length} underwriter${legs.length > 1 ? "s" : ""} in one transaction. ` : ""}
         {poor && account ? "Not enough USDG for the premium — use Get test USDG above. " : ""}
+        {onHold ? "Sales are paused: the trigger has fired on this market. They reopen once the event is recorded as over. " : ""}
         {isIl && !lpLive ? "Become an LP first — the cover is tied to your position. " : ""}
         The premium goes straight into the underwriter&apos;s reserve through Aqua. You get an ERC-6909 CoverNote. When the
         trigger fires, a keeper pushes the payout to whoever holds the note — no claim needed.

@@ -52,9 +52,9 @@ function Widget() {
   const book = s.markets.filter((m) => !m.docked && m.product === "depeg");
   const routed = book.length > 1 && !!D.coverRouter && D.coverRouter !== ZERO;
   const route = useMemo(
-    () => (notional > 0n && book.length ? solveRoute(book, Number(formatUnits(notional, 18))) : null),
+    () => (notional > 0n && book.length ? solveRoute(book, Number(formatUnits(notional, 18)), term) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [notional, book.map((m) => `${m.hash}:${m.covered}`).join("|")]
+    [notional, term, book.map((m) => `${m.hash}:${m.covered}`).join("|")]
   );
   const legs = useMemo(
     () => (route ?? []).map((l) => ({ strategyHash: l.market.hash, coverNotional: parseUnits(l.notional.toFixed(6), 18) })),
