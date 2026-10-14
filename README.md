@@ -77,6 +77,39 @@ own users.
 
 ## 3. How it works
 
+### In pictures
+
+**Uniswap v4 LP loss.** The buyer adds liquidity, pays a premium and gets a cover note. `CoverHook` measures the
+position's impermanent loss on-chain; past 0.5%, Airbag orders `Aqua.pull` and the underwriter's money goes
+straight to the buyer.
+
+![Airbag LP cover concept](./media/airbag-lp-concept.png)
+
+<details>
+<summary>The contracts behind one LP payout</summary>
+
+![Airbag LP cover architecture](./media/airbag-lp-full.png)
+
+</details>
+
+**Stablecoin depeg.** Same engine, built-in trigger: a fresh price at or below $0.97 pays 100% of the cover. With
+several underwriters, the router splits the order across the cheapest curves in one transaction.
+
+![Airbag depeg cover concept](./media/airbag-depeg.png)
+
+<details>
+<summary>The contracts behind one depeg payout</summary>
+
+![Airbag depeg cover architecture](./media/airbag-depeg-full.png)
+
+</details>
+
+The diagrams show a USDC reserve, a market setting that pays out in a coin other than the one that broke. The
+live demo markets are backed and paid in USDG. Sources: `pitch/diagrams/diagram.html` (re-render with
+`node pitch/diagrams/render.mjs`, then copy the PNGs to `media/`).
+
+### Worked example
+
 **The buyer.** Alice holds 50,000 USDG in her wallet and wants 7 days of depeg cover. These are live quotes from
 the Arbitrum Sepolia deployment for exactly that order:
 

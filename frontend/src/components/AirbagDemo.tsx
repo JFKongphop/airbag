@@ -3,23 +3,30 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * Hero loop, drawn as pixel art: the USDG price drifts around $1.00, then gaps below the
- * $0.97 trigger band — and the airbag deploys on its own (no claim form, no committee).
+ * Hero loop, drawn as pixel art: the wstETH/WETH pool price drifts around 1.00, then crashes far
+ * enough that an LP's impermanent loss passes the 0.5% deductible — and the airbag deploys on its
+ * own (no claim form, no committee).
  */
 const W = 48;
 const H = 40;
-const BAND = 0.97;
+const BAND = 0.82; // price ratio where impermanent loss reaches the 0.5% deductible
+const DEDUCT = 0.5;
+const CAP = 5;
+/** impermanent loss (%) of a 50/50 position when the price ratio moves to r */
+const ilPct = (r: number) => (1 - (2 * Math.sqrt(r)) / (1 + r)) * 100;
+const payPct = (r: number) => Math.max(0, Math.min(1, (ilPct(r) - DEDUCT) / (CAP - DEDUCT))) * 100;
 const INK = "#1b1712";
 const RED = "#e4412a";
 const RED_D = "#b8321f";
 const CREAM = "#fbf6ea";
 const SINK = "#e3d6b8";
 
-type Phase = "calm" | "depeg" | "deployed";
+type Phase = "calm" | "hit" | "deployed";
 
 export default function AirbagDemo() {
   const ref = useRef<HTMLCanvasElement>(null);
   const [price, setPrice] = useState(1);
+  const [low, setLow] = useState(1);
   const [phase, setPhase] = useState<Phase>("calm");
 
   useEffect(() => {
@@ -33,13 +40,13 @@ export default function AirbagDemo() {
     let lastUi = 0;
 
     const priceAt = (t: number) => {
-      // t in [0,1): calm wobble, then a gap down, then a slow partial recovery
-      const wob = Math.sin(t * 38) * 0.004 + Math.sin(t * 91) * 0.002;
+      // t in [0,1): calm wobble, then a crash, then a slow partial recovery
+      const wob = Math.sin(t * 38) * 0.012 + Math.sin(t * 91) * 0.006;
       if (t < 0.45) return 1 + wob;
-      if (t < 0.55) return 1 + wob - ((t - 0.45) / 0.1) * 0.09;
-      return 0.91 + wob + (t - 0.55) * 0.08;
+      if (t < 0.55) return 1 + wob - ((t - 0.45) / 0.1) * 0.33;
+      return 0.67 + wob + (t - 0.55) * 0.2;
     };
-    const yOf = (p: number) => Math.round((1.02 - p) / 0.13 * (H - 6)) + 2;
+    const yOf = (p: number) => Math.round((1.04 - p) / 0.44 * (H - 6)) + 2;
 
     function frame(now: number) {
       const t = reduced ? 0.8 : (now % LOOP) / LOOP;
@@ -59,12 +66,14 @@ export default function AirbagDemo() {
       const head = Math.floor(t * W * 1.0);
       ctx.fillStyle = INK;
       let firstHit = -1;
+      let lo = 1;
       for (let x = 0; x <= Math.min(head, W - 1); x++) {
         const p = priceAt(x / W);
         const y = yOf(p);
         ctx.fillRect(x, y, 1, 1);
         ctx.fillRect(x, y + 1, 1, 1);
         if (firstHit < 0 && p <= BAND) firstHit = x;
+        lo = Math.min(lo, p);
       }
       const cur = priceAt(Math.min(head, W - 1) / W);
 
@@ -72,7 +81,7 @@ export default function AirbagDemo() {
       let ph: Phase = "calm";
       if (firstHit >= 0) {
         const age = head - firstHit;
-        ph = age > 7 ? "deployed" : "depeg";
+        ph = age > 7 ? "deployed" : "hit";
         const r = Math.min(15, age * 2.2);
         const cx = 30;
         const cy = 20;
@@ -97,6 +106,7 @@ export default function AirbagDemo() {
       if (now - lastUi > 120) {
         lastUi = now;
         setPrice(cur);
+        setLow(lo);
         setPhase(ph);
       }
       if (!reduced) raf = requestAnimationFrame(frame);
@@ -111,20 +121,20 @@ export default function AirbagDemo() {
       <i className="corner c1" />
       <i className="corner c2" />
       <div className="bag-head">
-        <span>USDG / USD · oracle</span>
-        <span>trigger ≤ $0.97</span>
+        <span>wstETH / WETH · Uniswap v4 pool</span>
+        <span>pays past 0.5% LP loss</span>
       </div>
       <div className="bag-canvas">
         <canvas ref={ref} />
       </div>
       <div className="bag-readout">
         <span>
-          price <b className={hot ? "hot" : ""}>${price.toFixed(3)}</b>
+          LP loss <b className={hot ? "hot" : ""}>{ilPct(price).toFixed(2)}%</b>
         </span>
         <span>
           status{" "}
           <b className={hot ? "hot" : ""}>
-            {phase === "calm" ? "armed" : phase === "depeg" ? "triggered" : "paid out · 100%"}
+            {phase === "calm" ? "armed" : phase === "hit" ? "triggered" : `paid ${payPct(low).toFixed(0)}% of cover`}
           </b>
         </span>
       </div>

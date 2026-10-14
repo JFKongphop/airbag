@@ -59,12 +59,12 @@ const SHOCK_TICK = LST_IS_1 ? 4020 : -4020; // ≈ wstETH −33% vs WETH
 const lstPrice = (tick: number) => (LST_IS_1 ? 1 / 1.0001 ** tick : 1.0001 ** tick);
 
 const META: Record<Product, { n: string; name: string; tag: string }> = {
-  depeg: { n: "01", name: "Stablecoin depeg", tag: "USDG" },
-  il: { n: "02", name: "LP loss · Uniswap v4", tag: "wstETH/WETH" },
+  il: { n: "01", name: "LP loss · Uniswap v4", tag: "wstETH/WETH" },
+  depeg: { n: "02", name: "Stablecoin depeg", tag: "USDG" },
   gap: { n: "03", name: "Stock gap-down", tag: "TSLAx" },
   custom: { n: "··", name: "Custom trigger", tag: "ITrigger" },
 };
-const ORDER: Product[] = ["depeg", "il", "gap", "custom"];
+const ORDER: Product[] = ["il", "depeg", "gap", "custom"];
 
 function payoutRule(m: Market) {
   if (m.product === "depeg") {
@@ -142,7 +142,7 @@ export default function Console() {
   const s = useAirbag(address);
 
   const [tab, setTab] = useState<Tab>("buy");
-  const [prod, setProd] = useState<Product>("depeg");
+  const [prod, setProd] = useState<Product>("il");
   const [busy, setBusy] = useState<string | null>(null);
   const [logs, setLogs] = useState<Log[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -197,19 +197,21 @@ export default function Console() {
   /* ---------- auto-payout detection: my open cover got paid without me claiming ---------- */
   const claimedByMe = useRef(new Set<bigint>());
   const seenOpen = useRef(new Set<bigint>());
+  const lastPaid = useRef(new Map<bigint, bigint>()); // paid so far per policy; a proportional payout can grow while the policy stays open
   useEffect(() => {
     if (!address) return;
     for (const p of s.policies) {
+      const paid = p.paidOut ?? 0n;
+      const before = lastPaid.current.get(p.id);
+      lastPaid.current.set(p.id, paid);
       if (!p.settled && p.held) seenOpen.current.add(p.id);
-      else if (p.settled && p.paidOut !== null && seenOpen.current.has(p.id)) {
-        seenOpen.current.delete(p.id);
-        if (!claimedByMe.current.has(p.id) && p.paidOut > 0n) {
-          // one order can be split across underwriters → several policies pay in the same keeper round: add them up
-          const paid = p.paidOut, id = p.id;
-          setDeployed((d) => (d ? { amount: d.amount + paid, ids: [...d.ids, id] } : { amount: paid, ids: [id] }));
-          log(`Airbag deployed — policy #${p.id} paid ${usd(p.paidOut)} USDG to you automatically`, "bag");
-        }
+      if (before !== undefined && paid > before && seenOpen.current.has(p.id) && !claimedByMe.current.has(p.id)) {
+        // one order can be split across underwriters → several policies pay in the same keeper round: add them up
+        const got = paid - before, id = p.id;
+        setDeployed((d) => (d ? { amount: d.amount + got, ids: d.ids.includes(id) ? d.ids : [...d.ids, id] } : { amount: got, ids: [id] }));
+        log(`Airbag deployed — policy #${p.id} paid ${usd(got)} USDG to you automatically`, "bag");
       }
+      if (p.settled) seenOpen.current.delete(p.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.policies, address]);

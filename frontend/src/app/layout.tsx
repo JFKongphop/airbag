@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Airbag — depeg cover that deploys itself",
+  title: "Airbag — LP cover that deploys itself",
   description:
-    "Parametric, provably-solvent USDG depeg cover on 1inch Aqua. The reserve never leaves the underwriter's wallet; payouts fire atomically when the peg breaks.",
+    "Parametric cover for Uniswap v4 liquidity providers. A v4 hook measures impermanent loss on-chain, the reserve never leaves the underwriter's wallet (1inch Aqua), and the payout fires by itself.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

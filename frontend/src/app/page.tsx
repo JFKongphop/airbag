@@ -40,17 +40,18 @@ const STEPS = [
   },
   {
     no: "03",
-    title: "The peg breaks. The airbag deploys — by itself.",
+    title: "The pool moves. The airbag deploys — by itself.",
     body: (
       <>
-        The moment the trigger fires, a permissionless <b>keeper</b> calls <b>payout</b> and the USDG lands in
-        whoever holds the note — pulled straight from the underwriter&apos;s reserve in one transaction. The
-        insured doesn&apos;t even need to be online. No claim form, no committee, no waiting period.
+        A Uniswap v4 <b>hook</b> measures the LP&apos;s impermanent loss from the pool&apos;s own prices. Past the
+        deductible, a permissionless <b>keeper</b> calls <b>payout</b> and the money lands in whoever holds the
+        note — pulled straight from the underwriter&apos;s reserve in one transaction. No claim form, no
+        committee, no waiting period. If the loss deepens later, the difference is paid too.
       </>
     ),
     mech: (
       <>
-        trigger fires → keeper <em>payout()</em> → <em>aqua.pull()</em> → note holder · note burned
+        CoverHook loss → keeper <em>payout()</em> → <em>aqua.pull()</em> → note holder
       </>
     ),
   },
@@ -73,18 +74,18 @@ const STEPS = [
 ];
 
 const PRODUCTS = [
-  { k: "live · 01", t: "USDG depeg cover", p: "Oracle band trigger (Chainlink / Pyth adapters with staleness checks). Pays 100% of notional — pushed automatically." },
+  { k: "live · 01", t: "Uniswap v4 LP-loss cover", p: "CoverHook measures an LP's real impermanent loss on a v4 pool; ILTrigger pays it out with a deductible, a cap, and a same-block manipulation guard." },
+  { k: "live · 02", t: "Stablecoin depeg cover", p: "Oracle band trigger (Chainlink / Pyth adapters with staleness checks). Pays 100% of notional — pushed automatically." },
   { k: "live · 03", t: "Tokenized-stock gap cover", p: "Proportional payout when a tokenized stock gaps down — pays by how far it fell below the strike, not all-or-nothing." },
   { k: "reserve", t: "Tranched reserve", p: "Junior first-loss / senior-protected waterfall. Two risk appetites, one reserve." },
   { k: "reserve", t: "Yield reserve", p: "The reserve earns savings-vault yield while it backs cover, withdrawn just-in-time only when a payout fires. Underwriters stack premium + vault APY." },
   { k: "live · marketplace", t: "Underwriters compete", p: "Every underwriter publishes their own risk curve; the CoverRouter splits each order across the cheapest ones in one atomic transaction." },
-  { k: "live · 02", t: "Uniswap v4 LP-loss cover", p: "CoverHook measures an LP's real IL on a v4 pool; ILTrigger pays it out through the same claim — with a deductible, a cap, and a same-block manipulation guard." },
 ];
 
 const STACK = [
+  { k: "loss oracle", v: "Uniswap v4", p: "A hook on the pool records each LP's entry and exit, so the loss is measured by the pool itself." },
   { k: "reserve rail", v: "1inch Aqua", p: "Shared-liquidity virtual balances: capital stays in the maker's wallet." },
-  { k: "asset", v: "USDG", p: "Paxos-issued, regulated stablecoin — cover denominated and settled in USDG." },
-  { k: "trigger / LP", v: "Uniswap v4", p: "Optional hook for LP impermanent-loss cover on v4 pools." },
+  { k: "settlement", v: "USDG", p: "Paxos-issued, regulated stablecoin — premiums and payouts in the demo are in USDG." },
   { k: "chain", v: "Arbitrum", p: "Cheap enough to make per-policy notes and permissionless expiry practical." },
 ];
 
@@ -99,19 +100,19 @@ export default function Home() {
         <div className="hero-scrim" aria-hidden />
         <div className="container hero-grid">
           <div className="hero-text">
-            <span className="hero-tag">Parametric depeg cover · 1inch Aqua · Arbitrum</span>
+            <span className="hero-tag">Parametric LP cover · Uniswap v4 · 1inch Aqua · Arbitrum</span>
             <h1>
-              Depeg cover
+              LP cover
               <br />
               that deploys
               <br />
               itself<span className="dot">.</span>
             </h1>
             <p className="lede">
-              Airbag is <b>parametric, provably-solvent cover</b> for USDG. Underwriters back it from
-              their own wallets through <b>1inch Aqua</b>; buyers hold a transferable note. When the
-              price breaks the band, the payout fires <span className="u">automatically</span>, in one
-              transaction — <b>no claims desk, no custody</b>.
+              Airbag is <b>parametric, provably-solvent cover</b> for Uniswap v4 liquidity providers. A
+              v4 hook measures your <b>impermanent loss</b> on-chain; underwriters back the cover from their
+              own wallets through <b>1inch Aqua</b>. When the loss passes 0.5%, the payout fires{" "}
+              <span className="u">automatically</span> — <b>no claims desk, no custody</b>.
             </p>
             <div className="cta-row">
               <a className="btn btn-primary" href="/app">Open console →</a>
@@ -138,18 +139,24 @@ export default function Home() {
         <div className="container">
           <div className="panel">
             <span className="kicker">// why now</span>
-            <h2 className="sec-title">0x00 Stablecoins are money now. Nobody insures them.</h2>
+            <h2 className="sec-title">0x00 LPs earn fees, then lose more than they earned.</h2>
             <p className="sec-intro">
-              Regulated stablecoins like <b>USDG</b> are moving into payments, payroll and treasuries — and a peg is only as strong as the
-              bank the reserves sit in. When it wobbles, holders have nowhere to go: on-chain cover barely exists, and what does exist
-              pays out after committee votes and waiting periods.
+              Liquidity providers make DEXs work. When the two tokens in a pool move apart, an LP ends up worse off than if they had
+              just held the tokens — <b>impermanent loss</b>. It often eats more than the fees, and there is nothing to insure it with:
+              on-chain cover barely exists, and what does exist pays out after committee votes and waiting periods.
             </p>
             <div className="why">
               <div className="why-tile">
-                <div className="why-v red">$0.87</div>
-                <div className="why-k">USDC, 11 Mar 2023</div>
-                <p>Circle disclosed $3.3B of reserves stuck at Silicon Valley Bank; the &ldquo;safest&rdquo; stablecoin lost 13% overnight and took ~3 days to recover.</p>
-                <a href="https://www.cnbc.com/2023/03/11/stablecoin-usdc-breaks-dollar-peg-after-firm-reveals-it-has-3point3-billion-in-svb-exposure.html" target="_blank" rel="noreferrer">CNBC ↗</a>
+                <div className="why-v red">49.5%</div>
+                <div className="why-k">of Uniswap v3 LPs lost money</div>
+                <p>Half of liquidity providers did worse than simply holding the two tokens (pools over $10M, May–Sep 2021).</p>
+                <a href="https://arxiv.org/abs/2111.09192" target="_blank" rel="noreferrer">Loesch et al. ↗</a>
+              </div>
+              <div className="why-tile">
+                <div className="why-v red">$260M</div>
+                <div className="why-k">lost vs $199M earned</div>
+                <p>In the same study, impermanent loss was bigger than all the fees the LPs collected.</p>
+                <a href="https://arxiv.org/abs/2111.09192" target="_blank" rel="noreferrer">arXiv 2111.09192 ↗</a>
               </div>
               <div className="why-tile">
                 <div className="why-v">&lt; 2%</div>
@@ -158,15 +165,9 @@ export default function Home() {
                 <a href="https://bex.co/blog/2026/05/03/defi-insurance-450m-q1-hacks-coverage-gap" target="_blank" rel="noreferrer">bex.co ↗</a>
               </div>
               <div className="why-tile">
-                <div className="why-v">MAS · MiCA</div>
-                <div className="why-k">USDG is regulated money</div>
-                <p>Paxos&apos; Global Dollar is issued under Singapore&apos;s MAS framework and the EU&apos;s MiCA — the kind of dollar businesses actually hold.</p>
-                <a href="https://www.coingecko.com/en/coins/global-dollar" target="_blank" rel="noreferrer">CoinGecko ↗</a>
-              </div>
-              <div className="why-tile">
-                <div className="why-v green">1 block</div>
+                <div className="why-v green">1 tx</div>
                 <div className="why-k">Airbag payout time</div>
-                <p>Parametric trigger + keeper: the payout lands in the holder&apos;s wallet in the same block the price breaks the band. No claim at all.</p>
+                <p>Parametric trigger + keeper: once the hook sees the loss, one keeper transaction pays the holder. No claim at all.</p>
                 <a href="/app">try it ↗</a>
               </div>
             </div>
@@ -249,7 +250,7 @@ export default function Home() {
             <h2 className="sec-title">0x03 One engine. Pluggable cover.</h2>
             <p className="sec-intro">
               The core <b>CoverApp</b> handles reserves, pricing, notes and payouts. What counts as an
-              &quot;event&quot; is a plug-in: the built-in depeg band, or any contract implementing{" "}
+              &quot;event&quot; is a plug-in: the Uniswap v4 LP-loss trigger, the built-in depeg band, or any contract implementing{" "}
               <b>ITrigger</b>.
             </p>
             <div className="cards">
@@ -290,9 +291,9 @@ export default function Home() {
             <h2>
               Buckle up.
               <br />
-              <span className="red">Pegs break.</span>
+              <span className="red">Pools move.</span>
             </h2>
-            <p>Open a market as an underwriter, buy cover as a holder, and watch the airbag deploy when the oracle drops.</p>
+            <p>Become an LP, buy cover on your position, crash the pool, and watch the airbag deploy. Stablecoin depeg and stock cover run on the same engine.</p>
             <div className="cta-row">
               <a className="btn btn-primary" href="/app">Open console →</a>
             </div>
